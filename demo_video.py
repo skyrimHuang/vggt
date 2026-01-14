@@ -6,12 +6,10 @@
 
 import random
 import numpy as np
-import glob
 import os
 import copy
 import torch
 import torch.nn.functional as F
-import cv2
 from PIL import Image
 from pathlib import Path
 import tempfile
@@ -33,6 +31,7 @@ from vggt.utils.geometry import unproject_depth_map_to_point_map
 from vggt.utils.helper import create_pixel_coordinate_grid, randomly_limit_trues
 from vggt.dependency.track_predict import predict_tracks
 from vggt.dependency.np_to_pycolmap import batch_np_matrix_to_pycolmap, batch_np_matrix_to_pycolmap_wo_track
+from vggt.utils.videos_utils import extract_frames_from_video
 
 
 # TODO: add support for masks
@@ -72,78 +71,6 @@ def parse_args():
         "--conf_thres_value", type=float, default=5.0, help="Confidence threshold value for depth filtering (wo BA)"
     )
     return parser.parse_args()
-
-
-def extract_frames_from_video(video_path, num_frames, frame_indices=None, output_dir=None):
-    """
-    Extract frames from a video file.
-    
-    Args:
-        video_path (str): Path to the video file
-        num_frames (int): Number of frames to extract
-        frame_indices (list, optional): Specific frame indices to extract. If None, will randomly select frames
-        output_dir (str, optional): Directory to save extracted frames. If None, will use a temporary directory
-    
-    Returns:
-        tuple: (list of frame paths, list of frame indices used)
-    """
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        raise ValueError(f"Cannot open video file: {video_path}")
-    
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    print(f"Video has {total_frames} frames")
-    
-    # Determine frame indices to extract
-    if frame_indices is not None:
-        # Validate provided frame indices
-        frame_indices = [idx for idx in frame_indices if 0 <= idx < total_frames]
-        if len(frame_indices) == 0:
-            raise ValueError(f"No valid frame indices provided. Video has {total_frames} frames (0 to {total_frames-1})")
-        if len(frame_indices) > num_frames:
-            print(f"Warning: {len(frame_indices)} frame indices provided but only {num_frames} will be used")
-            frame_indices = frame_indices[:num_frames]
-        print(f"Using specified frame indices: {frame_indices}")
-    else:
-        # Randomly select frames
-        if num_frames > total_frames:
-            print(f"Warning: Requested {num_frames} frames but video only has {total_frames} frames")
-            num_frames = total_frames
-        frame_indices = sorted(random.sample(range(total_frames), num_frames))
-        print(f"Randomly selected frame indices: {frame_indices}")
-    
-    # Create output directory
-    if output_dir is None:
-        output_dir = tempfile.mkdtemp(prefix="vggt_frames_")
-    else:
-        os.makedirs(output_dir, exist_ok=True)
-    
-    # Extract frames
-    frame_paths = []
-    for idx, frame_idx in enumerate(frame_indices):
-        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-        ret, frame = cap.read()
-        if not ret:
-            print(f"Warning: Failed to read frame {frame_idx}")
-            continue
-        
-        # Convert BGR to RGB
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        
-        # Save frame
-        frame_filename = f"frame_{frame_idx:06d}.png"
-        frame_path = os.path.join(output_dir, frame_filename)
-        Image.fromarray(frame_rgb).save(frame_path)
-        frame_paths.append(frame_path)
-        print(f"Extracted frame {frame_idx} to {frame_path}")
-    
-    cap.release()
-    
-    if len(frame_paths) == 0:
-        raise ValueError("Failed to extract any frames from the video")
-    
-    print(f"Extracted {len(frame_paths)} frames to {output_dir}")
-    return frame_paths, frame_indices
 
 
 def run_VGGT(model, images, dtype, resolution=518):
