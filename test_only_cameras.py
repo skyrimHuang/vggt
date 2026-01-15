@@ -36,8 +36,6 @@ def parse_args():
     
     # Output options
     parser.add_argument("--output_dir", type=str, required=True, help="Output directory for camera pose results")
-    parser.add_argument("--output_format", type=str, default="json", choices=["json", "npy", "txt"], 
-                        help="Output format for camera poses")
     
     # Video processing options
     parser.add_argument("--num_frames", type=int, default=4, help="Number of frames to extract from video")
@@ -96,16 +94,16 @@ def run_VGGT_cameras_only(model, images, dtype, resolution=518):
     return extrinsic, intrinsic, inference_time
 
 
-def save_camera_poses(extrinsic, intrinsic, image_names, output_dir, output_format="json"):
+def save_camera_poses(extrinsic, intrinsic, image_names, output_dir, inference_time):
     """
-    Save camera poses to file in specified format.
+    Save camera poses to txt file.
     
     Args:
         extrinsic: Extrinsic camera matrices [N, 3, 4]
         intrinsic: Intrinsic camera matrices [N, 3, 3]
         image_names: List of image names
         output_dir: Output directory path
-        output_format: Output format (json, npy, txt)
+        inference_time: Total inference time in seconds
     """
     os.makedirs(output_dir, exist_ok=True)
     
@@ -125,33 +123,29 @@ def save_camera_poses(extrinsic, intrinsic, image_names, output_dir, output_form
         }
         camera_data.append(camera_info)
     
-    if output_format == "json":
-        output_path = os.path.join(output_dir, "camera_poses.json")
-        with open(output_path, "w") as f:
-            json.dump(camera_data, f, indent=2)
-        print(f"Saved camera poses to {output_path}")
+    output_path = os.path.join(output_dir, "camera_poses.txt")
+    with open(output_path, "w") as f:
+        # Write summary information
+        f.write("="*50 + "\n")
+        f.write("Camera Pose Estimation Summary\n")
+        f.write("="*50 + "\n")
+        f.write(f"Number of cameras: {len(image_names)}\n")
+        f.write(f"Inference time: {inference_time:.4f} seconds\n")
+        f.write(f"Average time per image: {inference_time / len(image_names):.4f} seconds\n")
+        f.write("\n")
+        
+        # Write detailed camera information
+        for i, camera in enumerate(camera_data):
+            f.write(f"Camera {i + 1}: {camera['image_name']}\n")
+            f.write(f"  Extrinsic:\n{camera['extrinsic']}\n")
+            f.write(f"  Intrinsic:\n{camera['intrinsic']}\n")
+            f.write(f"  Rotation:\n{camera['rotation_matrix']}\n")
+            f.write(f"  Translation: {camera['translation_vector']}\n")
+            f.write(f"  Focal Length: {camera['focal_length']}\n")
+            f.write(f"  Principal Point: {camera['principal_point']}\n")
+            f.write("\n")
     
-    elif output_format == "npy":
-        output_path = os.path.join(output_dir, "camera_poses.npz")
-        np.savez(output_path, 
-                 extrinsic=extrinsic, 
-                 intrinsic=intrinsic, 
-                 image_names=np.array(image_names))
-        print(f"Saved camera poses to {output_path}")
-    
-    elif output_format == "txt":
-        output_path = os.path.join(output_dir, "camera_poses.txt")
-        with open(output_path, "w") as f:
-            for i, camera in enumerate(camera_data):
-                f.write(f"Camera {i + 1}: {camera['image_name']}\n")
-                f.write(f"  Extrinsic:\n{camera['extrinsic']}\n")
-                f.write(f"  Intrinsic:\n{camera['intrinsic']}\n")
-                f.write(f"  Rotation:\n{camera['rotation_matrix']}\n")
-                f.write(f"  Translation: {camera['translation_vector']}\n")
-                f.write(f"  Focal Length: {camera['focal_length']}\n")
-                f.write(f"  Principal Point: {camera['principal_point']}\n")
-                f.write("\n")
-        print(f"Saved camera poses to {output_path}")
+    print(f"Saved camera poses to {output_path}")
 
 
 def demo_fn(args):
@@ -240,26 +234,7 @@ def demo_fn(args):
 
     # Save camera poses
     print(f"\nSaving camera poses to {args.output_dir}...")
-    save_camera_poses(extrinsic, intrinsic, image_names, args.output_dir, args.output_format)
-
-    # Save metadata
-    metadata = {
-        "input_type": "video" if args.video_path is not None else "images",
-        "input_path": args.video_path if args.video_path is not None else args.images_dir,
-        "num_images": len(frame_paths),
-        "image_names": image_names,
-        "frame_indices": frame_indices,
-        "vggt_resolution": args.vggt_resolution,
-        "img_load_resolution": args.img_load_resolution,
-        "device": device,
-        "dtype": str(dtype),
-        "inference_time_seconds": round(inference_time, 4)
-    }
-    
-    metadata_path = os.path.join(args.output_dir, "metadata.json")
-    with open(metadata_path, "w") as f:
-        json.dump(metadata, f, indent=2)
-    print(f"Saved metadata to {metadata_path}")
+    save_camera_poses(extrinsic, intrinsic, image_names, args.output_dir, inference_time)
 
     # Print summary
     print("\n" + "="*50)
@@ -267,7 +242,6 @@ def demo_fn(args):
     print("="*50)
     print(f"Number of cameras: {len(image_names)}")
     print(f"Output directory: {args.output_dir}")
-    print(f"Output format: {args.output_format}")
     print(f"Inference time: {inference_time:.4f} seconds")
     print(f"Average time per image: {inference_time / len(image_names):.4f} seconds")
     
