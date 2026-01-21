@@ -6,6 +6,7 @@ from glob import glob
 import torch
 import torch.nn.functional as F
 from PIL import Image
+from vggt.models.vggt import VGGT
 from vggt.layers.vision_transformer import vit_small, vit_base, vit_large, vit_giant2
 
 def parse_args():
@@ -15,13 +16,6 @@ def parse_args():
         type=str,
         required=True,
         help="Directory containing images to process"
-    )
-    parser.add_argument(
-        "--model_type",
-        type=str,
-        default="dinov2_vitl14_reg",
-        choices=["dinov2_vits14_reg", "dinov2_vitb14_reg", "dinov2_vitl14_reg", "dinov2_vitg2_reg"],
-        help="DinoV2 model type"
     )
     parser.add_argument(
         "--output_csv",
@@ -58,32 +52,25 @@ def load_image(image_path, img_size=518):
     return image
 
 def get_model(model_type, device):
-    """Initialize and load DinoV2 model"""
-    model_map = {
-        "dinov2_vits14_reg": vit_small,
-        "dinov2_vitb14_reg": vit_base,
-        "dinov2_vitl14_reg": vit_large,
-        "dinov2_vitg2_reg": vit_giant2
-    }
-    
-    model_fn = model_map[model_type]
-    model = model_fn(
-        img_size=518,
-        patch_size=14,
-        num_register_tokens=4,
-        interpolate_antialias=True,
-        interpolate_offset=0.0,
-        block_chunks=0,
-        init_values=1.0
-    )
-    
-    # Load pretrained weights (using the same approach as in aggregator.py)
-    # Note: This assumes you have the model weights downloaded
-    # For demonstration, we'll use a dummy weight initialization
-    # In practice, you should load the actual pretrained weights
+    """Initialize and load DinoV2 model from VGGT weights"""
+    # Load the complete VGGT model with pretrained weights
+    print("Loading VGGT model with pretrained weights...")
+    model = VGGT()
+    _URL = "https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt"
+    model.load_state_dict(torch.load("./../../models/model.pt"))
+    # model.load_state_dict(torch.hub.load_state_dict_from_url(_URL))
     model.eval()
     model.to(device)
-    return model
+    print("VGGT model loaded successfully")
+    
+    # Extract the DinoV2 feature extractor from the aggregator
+    # The patch_embed in aggregator is the DinoV2 model
+    dinov2_model = model.aggregator.patch_embed
+    dinov2_model.eval()
+    dinov2_model.to(device)
+    print("Extracted DinoV2 feature extractor")
+    
+    return dinov2_model
 
 def extract_features(model, image, device):
     """Extract features from an image using DinoV2"""
@@ -92,7 +79,9 @@ def extract_features(model, image, device):
         image = image.unsqueeze(0).to(device)
         # Forward pass to get features
         start_time = time.time()
-        features = model(image, is_training=False)
+        # For the DinoV2 model extracted from VGGT, we need to use the forward_features method
+        # This is because the patch_embed in aggregator is a DinoVisionTransformer instance
+        features = model.forward_features(image)
         end_time = time.time()
         extraction_time = end_time - start_time
     return features, extraction_time
@@ -111,13 +100,10 @@ def main():
         return
     
     print(f"Found {len(image_files)} images to process")
-    print(f"Using model: {args.model_type}")
     print(f"Using device: {args.device}")
     
     # Load model
-    print("Loading DinoV2 model...")
-    model = get_model(args.model_type, args.device)
-    print("Model loaded successfully")
+    model = get_model("dinov2_vitl14_reg", args.device)  # model_type is not used anymore
     
     # Process images and collect times
     results = []
