@@ -212,7 +212,7 @@ def demo_fn(args):
 
         conf_mask = depth_conf >= conf_thres_value
         # at most writing 100000 3d points to colmap reconstruction object
-        conf_mask = randomly_limit_trues(conf_mask, max_points_for_colmap)
+        # conf_mask = randomly_limit_trues(conf_mask, max_points_for_colmap)
 
         points_3d = points_3d[conf_mask]
         points_xyf = points_xyf[conf_mask]
